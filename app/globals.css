@@ -378,6 +378,57 @@ select {
   text-align: center;
 }
 
+/* ---------- signal popup ---------- */
+
+.signal-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  background: var(--surface-raised);
+  border: 1px solid var(--gold);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 14px 16px;
+  z-index: 50;
+}
+.signal-toast-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.signal-toast-head button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.signal-toast p {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.signal-armed {
+  color: var(--success);
+  font-size: 13px;
+}
+.signal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.signal-idle {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
 /* ---------- disclaimer ---------- */
 
 .disclaimer {

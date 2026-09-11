@@ -14,11 +14,6 @@ const SYMBOLS = [
   { code: "R_50", label: "Volatility 50 Index" },
   { code: "R_75", label: "Volatility 75 Index" },
   { code: "R_100", label: "Volatility 100 Index" },
-  { code: "1HZ10V", label: "Volatility 10 (1s) Index" },
-  { code: "1HZ25V", label: "Volatility 25 (1s) Index" },
-  { code: "1HZ50V", label: "Volatility 50 (1s) Index" },
-  { code: "1HZ75V", label: "Volatility 75 (1s) Index" },
-  { code: "1HZ100V", label: "Volatility 100 (1s) Index" },
 ];
 
 const labelFor = (code) => SYMBOLS.find((s) => s.code === code)?.label || code;
@@ -31,12 +26,13 @@ export default function Page() {
   const [balance, setBalance] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(false); // "armed" — bot will actually place trades
   const [rankings, setRankings] = useState([]);
   const [selected, setSelected] = useState(null); // {symbol, setup, score, pct, bars}
   const [statusMsg, setStatusMsg] = useState("Not connected.");
   const [trades, setTrades] = useState([]);
   const [sessionPnl, setSessionPnl] = useState(0);
+  const [signal, setSignal] = useState(null); // popup: {symbol, contractType, stake, armed}
 
   const [settings, setSettings] = useState({
     baseStake: 1,
@@ -52,10 +48,16 @@ export default function Page() {
 
   useEffect(() => {
     return () => {
-      engineRef.current?.stop();
+      engineRef.current?.stopScanning();
       clientRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!signal) return;
+    const t = setTimeout(() => setSignal(null), 10000);
+    return () => clearTimeout(t);
+  }, [signal]);
 
   async function handleConnect() {
     if (!token) return;
@@ -68,10 +70,22 @@ export default function Page() {
         onContractUpdate: (contract) => engineRef.current?.onContractSettled(contract),
       });
       await client.connect();
-      client.authorize(token.trim());
+      await client.authorize(token.trim());
       clientRef.current = client;
       setConnected(true);
-      setStatusMsg("Connected. Press Start bot to begin scanning.");
+      setStatusMsg("Connected. Scanning markets...");
+
+      // Scanning starts as soon as we connect — "Start bot" below only
+      // arms live trading, it doesn't need to be pressed for the
+      // dashboard/scanner to work.
+      const engine = new TradingEngine({
+        client,
+        symbols: SYMBOLS.map((s) => s.code),
+        settings,
+        onEvent: handleEngineEvent,
+      });
+      engineRef.current = engine;
+      engine.startScanning();
     } catch (err) {
       setErrorMsg(err.error_description || err.message || "Could not connect. Check your token.");
     } finally {
@@ -80,7 +94,7 @@ export default function Page() {
   }
 
   function handleDisconnect() {
-    engineRef.current?.stop();
+    engineRef.current?.stopScanning();
     clientRef.current?.close();
     clientRef.current = null;
     engineRef.current = null;
@@ -107,9 +121,12 @@ export default function Page() {
     }
     if (type === "status") {
       setStatusMsg(payload.message);
-      if (/stop loss|target profit|stopped/i.test(payload.message)) {
-        setRunning(false);
-      }
+    }
+    if (type === "armed_off") {
+      setRunning(false);
+    }
+    if (type === "signal") {
+      setSignal({ ...payload, time: new Date().toLocaleTimeString() });
     }
     if (type === "trade_open") {
       setStatusMsg(`Entering ${payload.contractType} on ${labelFor(payload.symbol)} — stake $${payload.stake.toFixed(2)}`);
@@ -134,22 +151,15 @@ export default function Page() {
   }
 
   function handleStart() {
-    if (!clientRef.current) return;
+    if (!engineRef.current) return;
     setTrades([]);
-    setSessionPnl(0);
-    const engine = new TradingEngine({
-      client: clientRef.current,
-      symbols: SYMBOLS.map((s) => s.code),
-      settings,
-      onEvent: handleEngineEvent,
-    });
-    engineRef.current = engine;
-    engine.start();
+    engineRef.current.updateSettings(settings);
+    engineRef.current.setArmed(true);
     setRunning(true);
   }
 
   function handleStop() {
-    engineRef.current?.stop("Stopped by you.");
+    engineRef.current?.setArmed(false);
     setRunning(false);
   }
 
@@ -163,14 +173,12 @@ export default function Page() {
         <div className="status-row">
           <span>
             <span className={`status-dot ${connected ? "live" : "off"}`} />
-            {connected ? (running ? "Running" : "Connected") : "Disconnected"}
+            {connected ? (running ? "Armed — trading" : "Scanning") : "Disconnected"}
           </span>
-          {balance && (
-            <span className="balance">
-              {Number(balance.balance).toFixed(2)}
-              <span className="ccy">{balance.currency}</span>
-            </span>
-          )}
+          <span className="balance">
+            {balance ? Number(balance.balance).toFixed(2) : "—"}
+            <span className="ccy">{balance ? balance.currency : "balance"}</span>
+          </span>
           <span className="balance" style={{ color: sessionPnl >= 0 ? "var(--success)" : "var(--danger)" }}>
             {sessionPnl >= 0 ? "+" : ""}
             {sessionPnl.toFixed(2)}
@@ -270,6 +278,29 @@ export default function Page() {
           </div>
         </div>
       </div>
+
+      {signal && (
+        <div className="signal-toast">
+          <div className="signal-toast-head">
+            <span>Conditions met — {signal.time}</span>
+            <button onClick={() => setSignal(null)}>&times;</button>
+          </div>
+          <p>
+            <strong>{signal.contractType}</strong> setup ready on{" "}
+            <strong>{labelFor(signal.symbol)}</strong> — stake ${signal.stake.toFixed(2)}
+          </p>
+          {signal.armed ? (
+            <p className="signal-armed">Bot is armed — placing this trade now.</p>
+          ) : (
+            <div className="signal-actions">
+              <span className="signal-idle">Bot isn't armed, so this trade was skipped.</span>
+              <button className="run-btn start" style={{ width: "auto", padding: "6px 14px" }} onClick={() => { handleStart(); setSignal(null); }}>
+                Arm bot
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="disclaimer">
         <strong>Risk disclaimer.</strong> Synthetic indices are generated by Deriv's own random number
