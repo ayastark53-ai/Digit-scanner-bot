@@ -68,7 +68,7 @@ export default function Page() {
         onContractUpdate: (contract) => engineRef.current?.onContractSettled(contract),
       });
       await client.connect();
-      await client.authorize(token);
+      client.authorize(token.trim());
       clientRef.current = client;
       setConnected(true);
       setStatusMsg("Connected. Press Start bot to begin scanning.");
